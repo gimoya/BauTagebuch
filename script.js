@@ -1250,12 +1250,36 @@ async function parseUploadedFile(file) {
     let files = {};
     
     if (file.name.endsWith('.zip')) {
-        // Extract ZIP - JSZip can handle ArrayBuffer directly
-        const arrayBuffer = await file.arrayBuffer();
+        // Extract ZIP - Use FileReader for better Android compatibility
+        let arrayBuffer;
+        if (file.arrayBuffer) {
+            // Modern browsers
+            arrayBuffer = await file.arrayBuffer();
+        } else {
+            // Fallback for older Android browsers using FileReader
+            arrayBuffer = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = (e) => reject(new Error('Failed to read file'));
+                reader.readAsArrayBuffer(file);
+            });
+        }
         files = await extractZip(arrayBuffer);
     } else {
         // Single file
-        const content = await file.text();
+        let content;
+        if (file.text) {
+            // Modern browsers
+            content = await file.text();
+        } else {
+            // Fallback for older Android browsers using FileReader
+            content = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = (e) => reject(new Error('Failed to read file'));
+                reader.readAsText(file);
+            });
+        }
         files[file.name] = content;
     }
     
