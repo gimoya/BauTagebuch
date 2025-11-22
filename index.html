@@ -22,7 +22,6 @@
                 <input 
                     type="file" 
                     id="fileInput" 
-                    accept=".zip,.txt,application/zip,application/x-zip-compressed,text/plain"
                     required
                 >
                     <label for="fileInput" class="file-input-label">
@@ -32,7 +31,7 @@
                     <span class="file-input-filename" id="fileName">No file selected</span>
                 </div>
                 <small style="color: #666; display: block; margin-top: 8px;">
-                    Select a ZIP file or direct .txt chat export file
+                    Select a chat log export file (*.zip, *.txt, or log-file without extension)
                 </small>
             </div>
             <button type="submit" id="parseBtn">Parse chat export</button>

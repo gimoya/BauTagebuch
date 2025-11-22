@@ -816,7 +816,8 @@ function extractWorkInfo(message, logCallback = null) {
     // FIRST: Try structured format: "18.11., 08:00, 14:00, break: 30, regie: 90, regie-type: wood, Work Description"
     // Format: dd.mm., H:MM or HH:MM, H:MM or HH:MM, break: MM, regie: MM (or regie-hrs: MM), regie-type: text, description
     // Whitespace-insensitive: matches with any amount/type of whitespace or none
-    const structuredPattern = /(\d{2}\.\d{2}\.)\s*,\s*(\d{1,2}:\d{2})\s*,\s*(\d{1,2}:\d{2})(?:\s*,\s*break\s*:\s*(\d+))?(?:\s*,\s*regie(?:\s*-\s*hrs)?\s*:\s*(\d+))?(?:\s*,\s*regie\s*-\s*type\s*:\s*([^,]+))?(?:\s*,\s*(.+))?/i;
+    // Structured pattern - allow newlines in whitespace, make comma optional before regie (can be on new line)
+    const structuredPattern = /(\d{2}\.\d{2}\.)[\s\n]*,\s*(\d{1,2}:\d{2})[\s\n]*,\s*(\d{1,2}:\d{2})(?:[\s\n]*,?\s*break\s*:\s*(\d+))?(?:[\s\n]*,?\s*regie(?:\s*-\s*hrs)?\s*:\s*(\d+))?(?:[\s\n]*,?\s*regie\s*-\s*type\s*:\s*([^,\n]+))?(?:[\s\n]*,?\s*([\s\S]+))?/i;
     const structuredMatch = message.match(structuredPattern);
     
     if (structuredMatch) {
@@ -980,6 +981,7 @@ function parseTxtChat(content, logCallback = null) {
     // Status messages: "dd.mm.yy, hh:mm - Text" (NO colon after dash)
     // Regular messages: "dd.mm.yy, hh:mm - Name: Text" (HAS colon after sender name)
     const regularMessageHeaders = [];
+    const statusMessageIndices = new Set(); // Track status message indices to stop extraction at them
     for (let i = 0; i < allHeaders.length; i++) {
         const header = allHeaders[i];
         const nextHeaderIndex = i < allHeaders.length - 1 ? allHeaders[i + 1].index : content.length;
@@ -999,6 +1001,7 @@ function parseTxtChat(content, logCallback = null) {
                 regularMessageHeaders.push(header);
             } else {
                 statusMessagesSkipped++;
+                statusMessageIndices.add(header.index);
                 log(`Skipping status message (no colon after dash): ${header.dateStr}, ${header.timeStr} - "${firstLine.substring(0, 50)}..."`);
             }
         }
@@ -1016,18 +1019,32 @@ function parseTxtChat(content, logCallback = null) {
     }
     
     // Iterate through regular message headers and extract messages directly
-    // No need for lookahead - we already know the boundaries!
+    // Stop at next regular message OR next status message (whichever comes first)
     log(`Processing ${regularMessageHeaders.length} regular messages...`);
     const matchedIndices = new Set(); // Track which headers were processed
     const headerPattern = /^(\d{2}\.\d{2}\.\d{2,4}),\s*(\d{2}:\d{2})\s*-\s*([^:\n]+):\s*(.*)/s;
     
     for (let i = 0; i < regularMessageHeaders.length; i++) {
         const header = regularMessageHeaders[i];
-        const nextHeaderIndex = i < regularMessageHeaders.length - 1 
-            ? regularMessageHeaders[i + 1].index 
-            : content.length;
         
-        // Extract the full message block from this header to the next
+        // Find the next regular message header
+        let nextRegularHeaderIndex = content.length;
+        if (i < regularMessageHeaders.length - 1) {
+            nextRegularHeaderIndex = regularMessageHeaders[i + 1].index;
+        }
+        
+        // Find the next status message header between this and next regular message
+        let nextStatusHeaderIndex = content.length;
+        for (const statusIdx of statusMessageIndices) {
+            if (statusIdx > header.index && statusIdx < nextRegularHeaderIndex) {
+                nextStatusHeaderIndex = Math.min(nextStatusHeaderIndex, statusIdx);
+            }
+        }
+        
+        // Stop at whichever comes first: next regular message or next status message
+        const nextHeaderIndex = Math.min(nextRegularHeaderIndex, nextStatusHeaderIndex);
+        
+        // Extract the message block from this header to the next header (regular or status)
         const messageBlock = content.substring(header.index, nextHeaderIndex);
         
         // Parse the header part: "dd.mm.yy, hh:mm - Name: Message"
@@ -1249,8 +1266,8 @@ function analyzeMessages(messages) {
 async function parseUploadedFile(file) {
     let files = {};
     
-    if (file.name.endsWith('.zip')) {
-        // Extract ZIP - Use FileReader for better Android compatibility
+    // Try as ZIP first (even if extension is wrong)
+    try {
         let arrayBuffer;
         if (file.arrayBuffer) {
             // Modern browsers
@@ -1265,22 +1282,30 @@ async function parseUploadedFile(file) {
             });
         }
         files = await extractZip(arrayBuffer);
-    } else {
-        // Single file
-        let content;
-        if (file.text) {
-            // Modern browsers
-            content = await file.text();
-        } else {
-            // Fallback for older Android browsers using FileReader
-            content = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => resolve(e.target.result);
-                reader.onerror = (e) => reject(new Error('Failed to read file'));
-                reader.readAsText(file);
-            });
+        console.log(`File "${file.name}" successfully read as ZIP`);
+    } catch (zipError) {
+        // Not a ZIP file, try as text
+        console.log(`File "${file.name}" is not a ZIP file, trying as text:`, zipError.message);
+        try {
+            let content;
+            if (file.text) {
+                // Modern browsers
+                content = await file.text();
+            } else {
+                // Fallback for older Android browsers using FileReader
+                content = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = (e) => reject(new Error('Failed to read file'));
+                    reader.readAsText(file);
+                });
+            }
+            files[file.name] = content;
+            console.log(`File "${file.name}" successfully read as text`);
+        } catch (textError) {
+            console.error(`File "${file.name}" could not be read as ZIP or text:`, textError.message);
+            throw new Error(`File "${file.name}" is not readable as ZIP or text file: ${textError.message}`);
         }
-        files[file.name] = content;
     }
     
     if (Object.keys(files).length === 0) {
