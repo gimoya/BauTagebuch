@@ -103,7 +103,6 @@ function calculateNettoTime(startTime, endTime, breakTime, regieTime = '') {
         if (totalMinutes < 0) {
             totalMinutes += 24 * 60; // Overnight shift
         } else if (totalMinutes === 0) {
-            console.warn('Invalid time range: start time equals end time', startTime, endTime);
             return '';
         }
 
@@ -112,7 +111,6 @@ function calculateNettoTime(startTime, endTime, breakTime, regieTime = '') {
         const nettoMinutes = totalMinutes - breakMinutes;
         return nettoMinutes > 0 ? minutesToHHMM(nettoMinutes) : '';
     } catch (e) {
-        console.error('Error calculating netto time:', e);
         return '';
     }
 }
@@ -601,8 +599,8 @@ async function extractZip(input) {
             promises.push(
                 file.async('text').then(text => {
                     contents[filename] = text;
-                }).catch(err => {
-                    console.error(`Error reading ${filename}:`, err);
+                }).catch(() => {
+                    // Ignore read errors for individual files
                 })
             );
         }
@@ -610,7 +608,6 @@ async function extractZip(input) {
         await Promise.all(promises);
         return contents;
     } catch (error) {
-        console.error('ZIP extraction error:', error);
         throw new Error('Failed to extract ZIP file: ' + error.message);
     }
 }
@@ -950,7 +947,6 @@ function parseTxtChat(content, logCallback = null) {
     
     const log = (msg) => {
         if (logCallback) logCallback(msg);
-        console.log(msg);
     };
     
     log('Starting to parse chat content...');
@@ -1065,7 +1061,6 @@ function parseTxtChat(content, logCallback = null) {
             }
         } catch (e) {
             log(`  ✗ Error parsing message: ${e.message}`);
-            console.error('Error parsing message:', e, header);
             continue;
         }
     }
@@ -1281,10 +1276,8 @@ async function parseUploadedFile(file) {
             });
         }
         files = await extractZip(arrayBuffer);
-        console.log(`File "${file.name}" successfully read as ZIP`);
     } catch (zipError) {
         // Not a ZIP file, try as text
-        console.log(`File "${file.name}" is not a ZIP file, trying as text:`, zipError.message);
         try {
             let content;
             if (file.text) {
@@ -1300,9 +1293,7 @@ async function parseUploadedFile(file) {
                 });
             }
             files[file.name] = content;
-            console.log(`File "${file.name}" successfully read as text`);
         } catch (textError) {
-            console.error(`File "${file.name}" could not be read as ZIP or text:`, textError.message);
             throw new Error(`File "${file.name}" is not readable as ZIP or text file: ${textError.message}`);
         }
     }
@@ -1311,72 +1302,43 @@ async function parseUploadedFile(file) {
         throw new Error('No files found');
     }
     
+    // Helper function to setup logging
+    const setupLogging = () => {
+        const parseLogDiv = document.getElementById('parseLog');
+        const parseLogContent = document.getElementById('parseLogContent');
+        if (parseLogDiv && parseLogContent) {
+            parseLogDiv.style.display = 'block';
+            parseLogContent.textContent = '';
+        }
+        
+        const logMessages = [];
+        const logCallback = (msg) => {
+            logMessages.push(msg);
+            if (parseLogContent) {
+                parseLogContent.textContent = logMessages.join('\n');
+                parseLogContent.scrollTop = parseLogContent.scrollHeight;
+            }
+        };
+        return logCallback;
+    };
+    
     // Parse all files
     const allMessages = [];
     for (const [filename, content] of Object.entries(files)) {
         let messages = [];
-        console.log(`Parsing file: ${filename}, size: ${content.length} chars`);
-        
-        // Show first 500 chars for debugging
-        console.log('First 500 chars of file:', content.substring(0, 500));
         
         if (filename.endsWith('.txt')) {
-            // Set up logging
-            const parseLogDiv = document.getElementById('parseLog');
-            const parseLogContent = document.getElementById('parseLogContent');
-            if (parseLogDiv && parseLogContent) {
-                parseLogDiv.style.display = 'block';
-                parseLogContent.textContent = '';
-            }
-            
-            const logMessages = [];
-            const logCallback = (msg) => {
-                logMessages.push(msg);
-                if (parseLogContent) {
-                    parseLogContent.textContent = logMessages.join('\n');
-                    parseLogContent.scrollTop = parseLogContent.scrollHeight;
-                }
-            };
-            
-            messages = parseTxtChat(content, logCallback);
-            console.log(`Found ${messages.length} messages in ${filename}`);
-            if (messages.length === 0) {
-                console.warn('No messages found. File format might not be recognized.');
-                console.log('First 10 lines:', content.split('\n').slice(0, 10).join('\n'));
-            }
+            messages = parseTxtChat(content, setupLogging());
         } else if (filename.endsWith('.html')) {
             messages = parseHtmlChat(content);
-            console.log(`Found ${messages.length} messages in ${filename}`);
         } else if (filename.endsWith('.json')) {
             messages = parseJsonChat(content);
-            console.log(`Found ${messages.length} messages in ${filename}`);
         } else {
             // Try to parse as text anyway
-            console.log(`Unknown file type, trying text parser for ${filename}`);
-            // Set up logging
-            const parseLogDiv = document.getElementById('parseLog');
-            const parseLogContent = document.getElementById('parseLogContent');
-            if (parseLogDiv && parseLogContent) {
-                parseLogDiv.style.display = 'block';
-                parseLogContent.textContent = '';
-            }
-            
-            const logMessages = [];
-            const logCallback = (msg) => {
-                logMessages.push(msg);
-                if (parseLogContent) {
-                    parseLogContent.textContent = logMessages.join('\n');
-                    parseLogContent.scrollTop = parseLogContent.scrollHeight;
-                }
-            };
-            
-            messages = parseTxtChat(content, logCallback);
-            console.log(`Found ${messages.length} messages in ${filename}`);
+            messages = parseTxtChat(content, setupLogging());
         }
         allMessages.push(...messages);
     }
-    
-    console.log(`Total messages parsed: ${allMessages.length}`);
     
     // Analyze
     const stats = analyzeMessages(allMessages);
@@ -1536,6 +1498,54 @@ function scrollToDate() {
     }
 }
 
+// Sync edits from DOM back to allParsedMessages
+function syncEditsToAllParsedMessages() {
+    const table = document.getElementById('messagesTable');
+    if (!table || allParsedMessages.length === 0) return;
+    
+    const rows = table.querySelectorAll('tbody tr');
+    rows.forEach(row => {
+        // Get unique key from data attribute
+        const uniqueKey = row.getAttribute('data-msg-key');
+        if (!uniqueKey) return;
+        
+        const getCellValue = (field) => {
+            const cell = row.querySelector(`[data-field="${field}"]`);
+            if (!cell) return '';
+            const text = (cell.textContent || cell.innerText || '').trim();
+            return text.replace(/N\/A/gi, '').replace(/<[^>]*>/g, '');
+        };
+        
+        // Find matching message in allParsedMessages using the unique key
+        const originalMsg = allParsedMessages.find(msg => {
+            const msgKey = `${msg.date}_${msg.time}_${msg.sender}_${msg.message}`;
+            return msgKey === uniqueKey;
+        });
+        
+        if (originalMsg) {
+            // Update the original message with edited values
+            const workDate = getCellValue('date');
+            const startTime = getCellValue('startTime');
+            const endTime = getCellValue('endTime');
+            const breakTime = getCellValue('breakTime');
+            const regieTime = getCellValue('regieTime');
+            const regieType = getCellValue('regieType');
+            
+            // Always update these fields (even if empty, to allow clearing)
+            originalMsg.workDate = workDate || originalMsg.workDate || originalMsg.date;
+            originalMsg.startTime = startTime || '';
+            originalMsg.endTime = endTime || '';
+            originalMsg.breakTime = breakTime || '';
+            originalMsg.regieTime = regieTime || '';
+            originalMsg.regieType = regieType || '';
+            
+            // Recalculate netto
+            const nettoTime = calculateNettoTime(startTime, endTime, breakTime, '');
+            originalMsg.nettoTime = nettoTime || '';
+        }
+    });
+}
+
 // Update stats tables from DOM data
 function updateStatsFromDOM() {
     const table = document.getElementById('messagesTable');
@@ -1574,6 +1584,9 @@ function updateStatsFromDOM() {
             message: messageText
         };
     });
+    
+    // Sync edits back to allParsedMessages
+    syncEditsToAllParsedMessages();
     
     generateSummaryTables(messages);
 }
@@ -1731,15 +1744,15 @@ function findEarliestDate(messages) {
 
 // Apply filters (date and worker) and refresh display
 function applyFilters() {
-    const fromDateInput = document.getElementById('fromDate');
-    const toDateInput = document.getElementById('toDate');
-    const workerFilter = document.getElementById('workerFilter');
+    const elements = getElements();
+    if (!elements.fromDateInput || !elements.toDateInput || allParsedMessages.length === 0) return;
     
-    if (!fromDateInput || !toDateInput || allParsedMessages.length === 0) return;
+    // First, sync any edits from DOM back to allParsedMessages before filtering
+    updateStatsFromDOM();
     
-    const fromDate = fromDateInput.value || null;
-    const toDate = toDateInput.value || null;
-    const worker = workerFilter ? workerFilter.value || null : null;
+    const fromDate = elements.fromDateInput.value || null;
+    const toDate = elements.toDateInput.value || null;
+    const worker = elements.workerFilter ? elements.workerFilter.value || null : null;
     
     const filteredMessages = filterMessages(allParsedMessages, fromDate, toDate, worker);
     
@@ -1775,28 +1788,6 @@ function displayFilteredMessages(messages) {
         </div>
     `;
     
-    // Find unmatched messages
-    const unmatchedMessages = messages.filter(msg => 
-        msg.unmatched || (!msg.workDate && !msg.startTime && !msg.endTime && 
-        !msg.breakTime && !msg.regieTime && !msg.regieType && 
-        msg.workDate !== 'N/A' && msg.startTime !== 'N/A')
-    );
-    
-    // Display unmatched messages log
-    const unmatchedDiv = document.getElementById('unmatchedMessages');
-    const unmatchedList = document.getElementById('unmatchedMessagesList');
-    if (unmatchedMessages.length > 0 && unmatchedDiv && unmatchedList) {
-        unmatchedList.innerHTML = unmatchedMessages.map((msg, idx) => `
-            <div style="margin-bottom: 10px; padding: 8px; background: white; border-left: 3px solid #ffc107; border-radius: 2px;">
-                <strong>#${idx + 1}</strong> - <strong>${msg.sender || 'Unknown'}</strong> (${msg.date || 'N/A'}, ${msg.time || 'N/A'}):<br>
-                <code style="display: block; margin-top: 5px; padding: 5px; background: #f8f9fa; border-radius: 2px; white-space: pre-wrap; font-size: 12px;">${(msg.message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code>
-            </div>
-        `).join('');
-        unmatchedDiv.style.display = 'block';
-    } else if (unmatchedDiv) {
-        unmatchedDiv.style.display = 'none';
-    }
-    
     // Group messages by original message to highlight properly
     const messageGroups = {};
     messages.forEach(msg => {
@@ -1831,7 +1822,7 @@ function displayFilteredMessages(messages) {
         );
         const highlightedMessage = hasExtractedData ? highlightMessage(msg.message, group.entries) : msg.message;
         
-        const isUnmatched = msg.unmatched || msg.workDate === 'N/A';
+        const isUnmatched = msg.unmatched || !msg.startTime || !msg.endTime;
         const msgDateValue = formatDateToDDMMYYYY(msg.date || '');
         const dateValue = formatDateToDDMMYYYY(msg.workDate === 'N/A' ? msg.date : (msg.workDate || msg.date || ''));
         const formatCellValue = (value) => {
@@ -1839,8 +1830,11 @@ function displayFilteredMessages(messages) {
             return value || '';
         };
         
+        // Create unique key for matching: date_time_sender_message
+        const uniqueKey = `${msg.date}_${msg.time}_${msg.sender}_${msg.message}`;
+        
         return `
-        <tr${isUnmatched ? ' style="background-color: #fff3cd;"' : ''} data-row-index="${index}">
+        <tr${isUnmatched ? ' style="background-color: #fff3cd;"' : ''} data-row-index="${index}" data-msg-key="${uniqueKey.replace(/"/g, '&quot;')}">
             <td class="col-msg-date" data-field="msgDate">${msgDateValue}</td>
             <td class="col-date editable-number" contenteditable="true" data-field="date">${dateValue}</td>
             <td class="col-name" data-field="sender">${msg.sender || 'Unknown'}</td>
@@ -1935,6 +1929,14 @@ function displayFilteredMessages(messages) {
                     
                     const netto = calculateNettoTime(startTime, endTime, breakTime, '');
                     nettoCell.textContent = netto || '';
+                    
+                    // Update row formatting based on whether both start and end times are present
+                    const isUnmatched = !startTime || !endTime;
+                    if (isUnmatched) {
+                        row.style.backgroundColor = '#fff3cd';
+                    } else {
+                        row.style.backgroundColor = '';
+                    }
                 }
             }
             
@@ -1969,157 +1971,150 @@ function displayFilteredMessages(messages) {
     }
 }
 
-// Form handler
-document.addEventListener('DOMContentLoaded', () => {
-    const form = document.getElementById('parseForm');
-    if (!form) {
-        console.error('Form not found');
-        return;
-    }
+// Cache DOM elements
+const getElements = () => ({
+    form: document.getElementById('parseForm'),
+    fileInput: document.getElementById('fileInput'),
+    fileName: document.getElementById('fileName'),
+    loading: document.getElementById('loading'),
+    error: document.getElementById('error'),
+    results: document.getElementById('results'),
+    statistics: document.getElementById('statistics'),
+    messagesList: document.getElementById('messagesList'),
+    fromDateInput: document.getElementById('fromDate'),
+    toDateInput: document.getElementById('toDate'),
+    workerFilter: document.getElementById('workerFilter'),
+    dateFilter: document.getElementById('dateFilter'),
+    exportBtn: document.getElementById('exportBtn'),
+    gotoDateInput: document.getElementById('gotoDate'),
+    gotoDateBtn: document.getElementById('gotoDateBtn')
+});
+
+// Setup filter event listeners (only once)
+let filtersInitialized = false;
+function setupFilterListeners() {
+    if (filtersInitialized) return;
+    filtersInitialized = true;
     
-    // Update filename display when file is selected
-    const fileInput = document.getElementById('fileInput');
-    const fileName = document.getElementById('fileName');
-    if (fileInput && fileName) {
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files && e.target.files.length > 0) {
-                fileName.textContent = e.target.files[0].name;
-            } else {
-                fileName.textContent = 'No file selected';
+    const elements = getElements();
+    if (elements.fromDateInput) {
+        elements.fromDateInput.addEventListener('change', applyFilters);
+    }
+    if (elements.toDateInput) {
+        elements.toDateInput.addEventListener('change', applyFilters);
+    }
+    if (elements.workerFilter) {
+        elements.workerFilter.addEventListener('change', applyFilters);
+    }
+    if (elements.gotoDateInput) {
+        elements.gotoDateInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                scrollToDate();
             }
         });
     }
-    
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const fileInput = document.getElementById('fileInput');
-        const parseBtn = document.getElementById('parseBtn');
-        const loading = document.getElementById('loading');
-        const error = document.getElementById('error');
-        const results = document.getElementById('results');
-        const statistics = document.getElementById('statistics');
-        const messagesList = document.getElementById('messagesList');
+    if (elements.gotoDateBtn) {
+        elements.gotoDateBtn.addEventListener('click', scrollToDate);
+    }
+    if (elements.exportBtn) {
+        elements.exportBtn.onclick = () => exportToCSV();
+    }
+}
 
-        if (!fileInput || !parseBtn || !loading || !error || !results || !statistics || !messagesList) {
-            console.error('Required elements not found');
-            return;
-        }
-        
-        parseBtn.disabled = true;
-        loading.style.display = 'block';
-        error.style.display = 'none';
-        results.style.display = 'none';
+// Form handler
+document.addEventListener('DOMContentLoaded', () => {
+    const elements = getElements();
+    if (!elements.form || !elements.fileInput || !elements.fileName) {
+        return;
+    }
 
-        try {
-            let data;
+    elements.fileInput.addEventListener('change', async (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            elements.fileName.textContent = e.target.files[0].name;
             
-            // Check if file is uploaded
-            if (!fileInput.files || fileInput.files.length === 0) {
-                error.textContent = 'Please select a file.';
-                error.style.display = 'block';
-                parseBtn.disabled = false;
-                loading.style.display = 'none';
+            if (!elements.loading || !elements.error || !elements.results || 
+                !elements.statistics || !elements.messagesList) {
                 return;
             }
-            
-            data = await parseUploadedFile(fileInput.files[0]);
+                
+            elements.loading.style.display = 'block';
+            elements.error.style.display = 'none';
+            elements.results.style.display = 'none';
 
-            if (data.error) {
-                error.textContent = data.error + (data.details ? ': ' + data.details : '');
-                error.style.display = 'block';
-            } else if (data.success) {
-                // Store all parsed messages globally
-                allParsedMessages = data.messages || [];
-                
-                // Find earliest date and set default filter values
-                const earliestDate = findEarliestDate(allParsedMessages);
-                const today = new Date().toISOString().split('T')[0];
-                
-                const fromDateInput = document.getElementById('fromDate');
-                const toDateInput = document.getElementById('toDate');
-                
-                if (fromDateInput && earliestDate) {
-                    fromDateInput.value = earliestDate;
-                }
-                if (toDateInput) {
-                    toDateInput.value = today;
-                }
-                
-                // Show date filter
-                const dateFilter = document.getElementById('dateFilter');
-                if (dateFilter) {
-                    dateFilter.style.display = 'block';
-                }
-                
-                // Populate worker filter dropdown
-                const workerFilter = document.getElementById('workerFilter');
-                if (workerFilter && allParsedMessages.length > 0) {
-                    // Get unique worker names
-                    const uniqueWorkers = [...new Set(allParsedMessages.map(msg => msg.sender || 'Unknown').filter(s => s))].sort();
-                    uniqueWorkers.forEach(worker => {
-                        const option = document.createElement('option');
-                        option.value = worker;
-                        option.textContent = worker;
-                        workerFilter.appendChild(option);
-                    });
-                }
-                
-                // Apply initial filter and display
-                applyFilters();
+            try {
+                const data = await parseUploadedFile(e.target.files[0]);
 
-                results.style.display = 'block';
-                
-                // Store messages data for export
-                window.parsedMessages = data.messages;
-                
-                // Setup export button
-                const exportBtn = document.getElementById('exportBtn');
-                if (exportBtn) {
-                    exportBtn.onclick = () => exportToCSV();
-                }
-                
-                // Add event listeners to filter inputs (reuse variables from above)
-                if (fromDateInput) {
-                    fromDateInput.addEventListener('change', applyFilters);
-                }
-                if (toDateInput) {
-                    toDateInput.addEventListener('change', applyFilters);
-                }
-                if (workerFilter) {
-                    workerFilter.addEventListener('change', applyFilters);
-                }
-                
-                // Setup goto date functionality
-                const gotoDateInput = document.getElementById('gotoDate');
-                const gotoDateBtn = document.getElementById('gotoDateBtn');
-                
-                // Prefill goto date with today
-                if (gotoDateInput) {
-                    const today = new Date().toISOString().split('T')[0];
-                    gotoDateInput.value = today;
+                if (data.error) {
+                    elements.error.textContent = data.error + (data.details ? ': ' + data.details : '');
+                    elements.error.style.display = 'block';
+                } else if (data.success) {
+                    // Store all parsed messages globally
+                    allParsedMessages = data.messages || [];
                     
-                    gotoDateInput.addEventListener('keypress', (e) => {
-                        if (e.key === 'Enter') {
-                            scrollToDate();
-                        }
-                    });
+                    // Find earliest date and set default filter values
+                    const earliestDate = findEarliestDate(allParsedMessages);
+                    const today = new Date().toISOString().split('T')[0];
+                    
+                    if (elements.fromDateInput && earliestDate) {
+                        elements.fromDateInput.value = earliestDate;
+                    }
+                    if (elements.toDateInput) {
+                        elements.toDateInput.value = today;
+                    }
+                    
+                    // Show date filter
+                    if (elements.dateFilter) {
+                        elements.dateFilter.style.display = 'block';
+                    }
+                    
+                    // Populate worker filter dropdown
+                    if (elements.workerFilter && allParsedMessages.length > 0) {
+                        // Clear existing options except "All Workers"
+                        elements.workerFilter.innerHTML = '<option value="">All Workers</option>';
+                        
+                        // Get unique worker names
+                        const uniqueWorkers = [...new Set(allParsedMessages.map(msg => msg.sender || 'Unknown').filter(s => s))].sort();
+                        uniqueWorkers.forEach(worker => {
+                            const option = document.createElement('option');
+                            option.value = worker;
+                            option.textContent = worker;
+                            elements.workerFilter.appendChild(option);
+                        });
+                    }
+                    
+                    // Setup filter listeners (only once)
+                    setupFilterListeners();
+                    
+                    // Prefill goto date with today
+                    if (elements.gotoDateInput) {
+                        elements.gotoDateInput.value = today;
+                    }
+                    
+                    // Apply initial filter and display
+                    applyFilters();
+
+                    elements.results.style.display = 'block';
+                    
+                    // Store messages data for export
+                    window.parsedMessages = data.messages;
+                } else {
+                    elements.error.textContent = 'Unknown error while parsing.';
+                    elements.error.style.display = 'block';
                 }
-                if (gotoDateBtn) {
-                    gotoDateBtn.addEventListener('click', scrollToDate);
-                }
-            } else {
-                error.textContent = 'Unknown error while parsing.';
-                error.style.display = 'block';
+            } catch (err) {
+                elements.error.textContent = 'Error: ' + err.message;
+                elements.error.style.display = 'block';
+            } finally {
+                elements.loading.style.display = 'none';
             }
-        } catch (err) {
-            error.textContent = 'Error: ' + err.message;
-            error.style.display = 'block';
-            console.error('Parse error:', err);
-        } finally {
-            parseBtn.disabled = false;
-            loading.style.display = 'none';
+        } else {
+            elements.fileName.textContent = 'No file selected';
         }
+    });
+    
+    // Prevent form submission (parsing happens on file selection)
+    elements.form.addEventListener('submit', (e) => {
+        e.preventDefault();
     });
 });
 

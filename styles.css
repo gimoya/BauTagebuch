@@ -151,7 +151,7 @@ button:disabled {
     margin: 8px 0;
 }
 .messages-table-wrapper {
-    max-height: 400px;
+    max-height: 600px;
     overflow-y: auto;
     border: 1px solid #ddd;
     border-radius: 4px;

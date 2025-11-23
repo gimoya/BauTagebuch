@@ -26,7 +26,7 @@
                 >
                     <label for="fileInput" class="file-input-label">
                         <span class="file-input-icon">📁</span>
-                        <span class="file-input-text">Select file</span>
+                        <span class="file-input-text">Select and Parse</span>
                     </label>
                     <span class="file-input-filename" id="fileName">No file selected</span>
                 </div>
@@ -34,12 +34,11 @@
                     Select a chat log export file (*.zip, *.txt, or log-file without extension)
                 </small>
             </div>
-            <button type="submit" id="parseBtn">Parse chat export</button>
         </form>
 
         <div id="loading" class="loading">Loading and parsing chat export...</div>
         <div id="error" class="error"></div>
-        <div id="parseLog" style="display: none; margin: 20px 0; padding: 15px; background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 4px; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto;">
+        <div id="parseLog" style="display: none; margin: 20px 0; padding: 15px; background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 4px; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto;">
             <h3 style="margin: 0 0 10px 0; color: #004085;">📋 Parsing Log</h3>
             <div id="parseLogContent" style="white-space: pre-wrap;"></div>
         </div>
@@ -47,10 +46,6 @@
         <div id="results" class="results">
             <div class="statistics" id="statistics"></div>
             <div id="summaryTables"></div>
-                    <div id="unmatchedMessages" style="display: none; margin-bottom: 20px; padding: 15px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px;">
-                        <h3 style="margin: 0 0 10px 0; color: #856404;">⚠️ Unmatched Messages (No Fields Extracted)</h3>
-                        <div id="unmatchedMessagesList" style="max-height: 200px; overflow-y: auto;"></div>
-                    </div>
             <div id="dateFilter" class="date-filter" style="display: none; margin-bottom: 20px; padding: 15px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
                 <h3 style="margin: 0 0 15px 0;">Filters</h3>
                 <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 15px;">
