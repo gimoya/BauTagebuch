@@ -394,7 +394,6 @@ function extractRegieEntries(text, existingRegieType = '') {
                         /\bcut\s+trees?\b/gi,
                         /\bcut\s+bushes\b/gi,
                         /\bcut\s+branches\b/gi,
-                        /\bmoving\s+branches?\b/gi,
                         /\bchainsaw\s+cutting\b/gi,
                         /\bwood\s+clearing\b/gi,
                         /\bclearing\s+wood\b/gi,
@@ -1462,7 +1461,7 @@ function generateSummaryTables(messages) {
                         <tr>
                             <th style="text-align: left; white-space: nowrap;">Metric</th>
                             <th style="text-align: right; white-space: nowrap;">Value</th>
-                            <th style="text-align: left; white-space: nowrap;">Note</th>
+                            <th style="text-align: left;">Note</th>
                         </tr>
                     </thead>
                     <tbody>

@@ -311,6 +311,13 @@ button:disabled {
 .summary-table tbody tr:last-child td {
     border-bottom: 1px solid #ddd;
 }
+.summary-table th:nth-child(3),
+.summary-table td:nth-child(3) {
+    max-width: 200px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
+}
 .pill {
     display: inline-block;
     padding: 4px 10px;
